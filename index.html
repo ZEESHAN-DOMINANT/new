@@ -2719,14 +2719,15 @@ document.head.appendChild(styleEl);
     // Firebase configuration
     // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 
-
 <!-- Add this right before your closing </body> tag -->
 <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-analytics-compat.js"></script>
 
 <script>
-// Simple Firebase Configuration
+// =============================================
+// FIREBASE INITIALIZATION (REPLACE WITH YOUR CONFIG)
+// =============================================
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyC9kDgSE37a8wAyc6XSW0xrjb1a_vs5y7k",
@@ -2736,95 +2737,133 @@ const firebaseConfig = {
   messagingSenderId: "451679606736",
   appId: "1:451679606736:web:e64e899b7859d3d3a3cbd5",
   measurementId: "G-HWVVYV1BN4"
-};// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+};
 
 // Initialize Firebase
-const app = firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-const analytics = firebase.analytics();
-
-// 1. Basic Analytics Tracking
-function trackEvent(eventName, data = {}) {
-    analytics.logEvent(eventName, data);
-}
-
-// Track page views
-trackEvent('page_view', {
-    page_title: document.title,
-    page_path: window.location.pathname
-});
-
-// 2. Newsletter Form Submission
-document.getElementById('newsletter-form').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    const email = document.getElementById('newsletter-email').value.trim();
+try {
+    const app = firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const analytics = firebase.analytics();
     
-    // Your existing notification
-    showNotification('Thank you for subscribing to our newsletter!');
-    this.reset();
+    console.log("Firebase initialized successfully");
     
-    // Simple database save
-    try {
-        await db.collection("newsletters").add({
-            email: email,
-            timestamp: new Date()
-        });
-        trackEvent('newsletter_signup', {email: email});
-    } catch (error) {
-        console.log("Newsletter save error:", error);
+    // =============================================
+    // ANALYTICS TRACKING
+    // =============================================
+    function trackEvent(eventName, data = {}) {
+        try {
+            analytics.logEvent(eventName, data);
+            console.log("Tracked:", eventName, data);
+        } catch (e) {
+            console.log("Analytics error:", e);
+        }
     }
-});
-
-// 3. Contact Form Submission
-document.getElementById('contactForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    const formData = {
-        name: document.getElementById('name').value.trim(),
-        email: document.getElementById('email').value.trim(),
-        subject: document.getElementById('subject').value.trim(),
-        message: document.getElementById('message').value.trim()
+    
+    // Track initial page view
+    trackEvent('page_view', {
+        page_title: document.title,
+        page_path: window.location.pathname
+    });
+    
+    // =============================================
+    // NEWSLETTER FORM HANDLER
+    // =============================================
+    const newsletterForm = document.getElementById('newsletter-form');
+    if (newsletterForm) {
+        newsletterForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const email = document.getElementById('newsletter-email').value.trim();
+            
+            if (!email) return;
+            
+            // Show existing notification
+            showNotification('Thank you for subscribing to our newsletter!');
+            newsletterForm.reset();
+            
+            // Save to Firestore
+            try {
+                await db.collection("newsletterSubscribers").add({
+                    email: email,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                console.log("Newsletter saved to Firestore");
+                trackEvent('newsletter_signup', {email: email});
+            } catch (error) {
+                console.log("Firestore save error:", error);
+            }
+        });
+    }
+    
+    // =============================================
+    // CONTACT FORM HANDLER
+    // =============================================
+    const contactForm = document.getElementById('contactForm');
+    if (contactForm) {
+        contactForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = {
+                name: document.getElementById('name').value.trim(),
+                email: document.getElementById('email').value.trim(),
+                subject: document.getElementById('subject').value.trim(),
+                message: document.getElementById('message').value.trim(),
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            
+            if (!formData.name || !formData.email || !formData.message) return;
+            
+            // Show existing notification
+            showNotification('Your message has been sent successfully!');
+            contactForm.reset();
+            
+            // Save to Firestore
+            try {
+                await db.collection("contactMessages").add(formData);
+                console.log("Contact form saved to Firestore");
+                trackEvent('contact_submitted', formData);
+            } catch (error) {
+                console.log("Firestore save error:", error);
+            }
+        });
+    }
+    
+    // =============================================
+    // RECIPE VIEW TRACKING (WRAPPER)
+    // =============================================
+    const originalShowRecipeModal = window.showRecipeModal;
+    window.showRecipeModal = function(recipeId) {
+        const recipe = recipes.find(r => r.id === recipeId);
+        if (recipe) {
+            trackEvent('view_recipe', {
+                recipe_id: recipeId,
+                recipe_name: recipe.title
+            });
+        }
+        originalShowRecipeModal(recipeId);
     };
     
-    // Your existing notification
-    showNotification('Your message has been sent successfully!');
-    this.reset();
+    // =============================================
+    // SEARCH TRACKING (WRAPPER)
+    // =============================================
+    const originalSearchRecipes = window.searchRecipes;
+    window.searchRecipes = function() {
+        const term = searchInput.value.trim();
+        if (term) {
+            trackEvent('search', {
+                search_term: term,
+                search_location: 'main_search'
+            });
+        }
+        originalSearchRecipes();
+    };
     
-    // Simple database save
-    try {
-        await db.collection("contacts").add({
-            ...formData,
-            timestamp: new Date()
-        });
-        trackEvent('contact_submission', formData);
-    } catch (error) {
-        console.log("Contact save error:", error);
-    }
-});
+} catch (firebaseError) {
+    console.error("Firebase initialization failed:", firebaseError);
+}
 
-// 4. Recipe View Tracking (added to your existing showRecipeModal function)
-const originalShowRecipeModal = showRecipeModal;
-showRecipeModal = function(recipeId) {
-    const recipe = recipes.find(r => r.id === recipeId);
-    if (recipe) {
-        trackEvent('view_recipe', {
-            recipe_id: recipeId,
-            recipe_name: recipe.title
-        });
-    }
-    originalShowRecipeModal(recipeId);
-};
-
-// 5. Search Tracking (added to your existing searchRecipes function)
-const originalSearchRecipes = searchRecipes;
-searchRecipes = function() {
-    const term = searchInput.value.trim();
-    if (term) {
-        trackEvent('search', {
-            search_term: term
-        });
-    }
-    originalSearchRecipes();
-};
+// =============================================
+// YOUR EXISTING CODE CONTINUES UNCHANGED BELOW
+// =============================================
 
 
 
