@@ -2717,10 +2717,7 @@ document.head.appendChild(styleEl);
 
 <!-- Firebase App (the core Firebase SDK) is always required and must be listed first -->
 <!-- Add these right before your existing script -->
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-analytics.js"></script>
-    
+
 
     <script>
 
@@ -2728,6 +2725,11 @@ document.head.appendChild(styleEl);
 
 
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+
+
+
+    // Firebase configuration and initialization
+    // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyC9kDgSE37a8wAyc6XSW0xrjb1a_vs5y7k",
   authDomain: "food-renovation-c989e.firebaseapp.com",
@@ -2738,82 +2740,290 @@ const firebaseConfig = {
   measurementId: "G-HWVVYV1BN4"
 };
 
-// Initialize Firebase
-if (!firebase.apps.length) {
-  firebase.initializeApp(firebaseConfig);
-}
-const db = firebase.firestore();
-const analytics = firebase.analytics();
+    // Initialize Firebase
+    const app = firebase.initializeApp(firebaseConfig);
+    const analytics = firebase.analytics();
+    const db = firebase.firestore();
 
-// Track page views
-analytics.logEvent('page_view', {
-  page_title: document.title,
-  page_path: window.location.pathname
-});
+    // Enable offline persistence
+    db.enablePersistence()
+        .catch((err) => {
+            if (err.code == 'failed-precondition') {
+                console.log("Offline persistence can only be enabled in one tab at a time.");
+            } else if (err.code == 'unimplemented') {
+                console.log("The current browser does not support offline persistence.");
+            }
+        });
 
-// ===== SIMPLE FIRESTORE FUNCTIONS =====
-async function saveNewsletter(email) {
-  try {
-    await db.collection("newsletters").add({
-      email: email,
-      timestamp: firebase.firestore.FieldValue.serverTimestamp()
+    // Track online/offline status
+    function updateOnlineStatus() {
+        const status = navigator.onLine ? 'online' : 'offline';
+        analytics.logEvent('connection_change', {
+            status: status
+        });
+        
+        if (status === 'offline') {
+            showNotification('You are currently offline. Some features may be limited.');
+        }
+    }
+
+    // Recipe Data - Now fetched from Firestore
+    let recipes = [];
+    let recipesLoaded = false;
+
+    // Function to fetch recipes from Firestore
+    function fetchRecipes() {
+        return new Promise((resolve, reject) => {
+            // First try to get from cache
+            db.collection("recipes").get({ source: "cache" })
+                .then((querySnapshot) => {
+                    if (!querySnapshot.empty) {
+                        processRecipes(querySnapshot);
+                        resolve();
+                    }
+                    
+                    // Then get from server
+                    return db.collection("recipes").get({ source: "server" });
+                })
+                .then((querySnapshot) => {
+                    if (!querySnapshot.empty) {
+                        processRecipes(querySnapshot);
+                    }
+                    recipesLoaded = true;
+                    resolve();
+                })
+                .catch((error) => {
+                    console.error("Error getting recipes: ", error);
+                    reject(error);
+                });
+        });
+    }
+
+    function processRecipes(querySnapshot) {
+        recipes = [];
+        querySnapshot.forEach((doc) => {
+            const recipeData = doc.data();
+            recipes.push({
+                id: doc.id,
+                ...recipeData
+            });
+        });
+    }
+
+    // Initialize recipes when page loads
+    document.addEventListener('DOMContentLoaded', () => {
+        fetchRecipes().then(() => {
+            displayRecipes(recipes);
+            
+            // Track page view
+            analytics.logEvent('page_view', {
+                page_title: 'Home',
+                page_location: window.location.href
+            });
+        });
+
+        // Set up online/offline listeners
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+        updateOnlineStatus(); // Initial check
     });
-    console.log("Newsletter saved!");
-    return true;
-  } catch (error) {
-    console.error("Error saving newsletter:", error);
-    return false;
-  }
-}
 
-async function saveContact(name, email, message) {
-  try {
-    await db.collection("contacts").add({
-      name: name,
-      email: email,
-      message: message,
-      timestamp: firebase.firestore.FieldValue.serverTimestamp()
+    // Global error handlers
+    window.addEventListener('error', (event) => {
+        analytics.logEvent('javascript_error', {
+            message: event.message,
+            filename: event.filename,
+            lineno: event.lineno,
+            colno: event.colno,
+            error: event.error ? event.error.toString() : 'Unknown'
+        });
     });
-    console.log("Contact saved!");
-    return true;
-  } catch (error) {
-    console.error("Error saving contact:", error);
-    return false;
-  }
-}
 
-// ===== MODIFY YOUR EXISTING FORMS ===== 
-// Newsletter form
-document.getElementById('newsletter-form').addEventListener('submit', async function(e) {
-  e.preventDefault();
-  const email = document.getElementById('newsletter-email').value;
-  
-  if (await saveNewsletter(email)) {
-    showNotification('Thanks for subscribing!');
-    this.reset();
-    analytics.logEvent('newsletter_signup');
-  } else {
-    showNotification('Failed to subscribe. Please try again.');
-  }
-});
+    window.addEventListener('unhandledrejection', (event) => {
+        analytics.logEvent('promise_rejection', {
+            reason: event.reason ? event.reason.toString() : 'Unknown'
+        });
+    });
 
-// Contact form
-document.getElementById('contactForm').addEventListener('submit', async function(e) {
-  e.preventDefault();
-  const name = document.getElementById('name').value;
-  const email = document.getElementById('email').value;
-  const message = document.getElementById('message').value;
-  
-  if (await saveContact(name, email, message)) {
-    showNotification('Message sent successfully!');
-    this.reset();
-    analytics.logEvent('contact_submit');
-  } else {
-    showNotification('Failed to send message. Please try again.');
-  }
-});
+    // Updated form submissions with Firebase integration
+    newsletterForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const email = document.getElementById('newsletter-email').value;
+        
+        // Track subscription attempt
+        analytics.logEvent('newsletter_signup_attempt', {
+            email: email
+        });
 
+        // Add to Firestore
+        db.collection("newsletterSubscribers").add({
+            email: email,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            source: "website"
+        })
+        .then(() => {
+            newsletterForm.reset();
+            showNotification('Thank you for subscribing to our newsletter!');
+            
+            // Track successful subscription
+            analytics.logEvent('newsletter_signup_success', {
+                email: email
+            });
+        })
+        .catch((error) => {
+            console.error("Error adding subscriber: ", error);
+            showNotification('There was an error with your subscription. Please try again.');
+            
+            // Track subscription failure
+            analytics.logEvent('newsletter_signup_failure', {
+                email: email,
+                error: error.message
+            });
+        });
+    });
 
+    contactForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        
+        const name = document.getElementById('name').value;
+        const email = document.getElementById('email').value;
+        const subject = document.getElementById('subject').value;
+        const message = document.getElementById('message').value;
+        
+        // Track contact attempt
+        analytics.logEvent('contact_form_submission_attempt', {
+            name: name,
+            email: email,
+            subject: subject
+        });
+
+        // Add to Firestore
+        db.collection("contactSubmissions").add({
+            name: name,
+            email: email,
+            subject: subject,
+            message: message,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            status: "unread"
+        })
+        .then(() => {
+            contactForm.reset();
+            showNotification('Your message has been sent successfully!');
+            
+            // Track successful submission
+            analytics.logEvent('contact_form_submission_success', {
+                name: name,
+                email: email,
+                subject: subject
+            });
+        })
+        .catch((error) => {
+            console.error("Error adding contact submission: ", error);
+            showNotification('There was an error sending your message. Please try again.');
+            
+            // Track submission failure
+            analytics.logEvent('contact_form_submission_failure', {
+                name: name,
+                email: email,
+                subject: subject,
+                error: error.message
+            });
+        });
+    });
+
+    // Track recipe views
+    const originalShowRecipeModal = showRecipeModal;
+    showRecipeModal = function(recipeId) {
+        const recipe = recipes.find(r => r.id === recipeId);
+        if (!recipe) return;
+        
+        // Track recipe view
+        analytics.logEvent('view_recipe', {
+            recipe_id: recipeId,
+            recipe_name: recipe.title,
+            recipe_category: recipe.category.join(', ')
+        });
+        
+        // Call original function
+        originalShowRecipeModal(recipeId);
+    };
+
+    // Track search events
+    const originalSearchRecipes = searchRecipes;
+    searchRecipes = function() {
+        const searchTerm = searchInput.value.toLowerCase().trim();
+        
+        // Track search event
+        analytics.logEvent('search', {
+            search_term: searchTerm,
+            search_results_count: currentRecipes.length
+        });
+        
+        // Call original function
+        originalSearchRecipes();
+    };
+
+    // Track category filter events
+    const originalFilterByCategory = filterByCategory;
+    filterByCategory = function(category) {
+        // Track filter event
+        analytics.logEvent('filter_recipes', {
+            filter_category: category
+        });
+        
+        // Call original function
+        originalFilterByCategory(category);
+    };
+
+    // Track ingredient selection events
+    ingredientTags.forEach(tag => {
+        const originalClickHandler = tag.onclick;
+        tag.addEventListener('click', () => {
+            const ingredient = tag.dataset.ingredient;
+            
+            // Track ingredient selection
+            analytics.logEvent('select_ingredient', {
+                ingredient: ingredient
+            });
+            
+            // Call original handler if it exists
+            if (originalClickHandler) originalClickHandler();
+        });
+    });
+
+    // Track page performance
+    const pageLoadTrace = firebase.performance().trace('pageLoad');
+    pageLoadTrace.start();
+
+    window.addEventListener('load', () => {
+        pageLoadTrace.stop();
+        
+        // Track additional metrics
+        const timeToInteractive = Math.round(performance.now());
+        analytics.logEvent('timing_complete', {
+            name: 'page_interactive',
+            value: timeToInteractive,
+            event_category: 'Page Load'
+        });
+    });
+
+    // Track recipe image load performance
+    document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('.recipe-img img').forEach(img => {
+            const imgTrace = firebase.performance().trace(`imageLoad_${img.alt}`);
+            imgTrace.start();
+            
+            img.addEventListener('load', () => {
+                imgTrace.stop();
+                imgTrace.putAttribute('image_size', `${img.naturalWidth}x${img.naturalHeight}`);
+            });
+            
+            img.addEventListener('error', () => {
+                imgTrace.stop();
+                imgTrace.putAttribute('load_error', 'true');
+            });
+        });
+    });
 
 
 
