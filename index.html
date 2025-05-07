@@ -4206,6 +4206,289 @@ filterButtons.forEach(button => {
 });
 
 
+    // ===== FIREBASE INITIALIZATION =====
+    // Your web app's Firebase configuration
+    // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyC9kDgSE37a8wAyc6XSW0xrjb1a_vs5y7k",
+  authDomain: "food-renovation-c989e.firebaseapp.com",
+  projectId: "food-renovation-c989e",
+  storageBucket: "food-renovation-c989e.firebasestorage.app",
+  messagingSenderId: "451679606736",
+  appId: "1:451679606736:web:e64e899b7859d3d3a3cbd5",
+  measurementId: "G-HWVVYV1BN4"
+};
+
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const analytics = firebase.analytics();
+
+    // ===== GOOGLE ANALYTICS TRACKING =====
+    // Track page views
+    function trackPageView(pageTitle) {
+        analytics.logEvent('page_view', {
+            page_title: pageTitle,
+            page_location: window.location.href,
+            page_path: window.location.pathname
+        });
+    }
+
+    // Track custom events
+    function trackEvent(eventName, eventParams = {}) {
+        analytics.logEvent(eventName, eventParams);
+    }
+
+    // Track recipe views
+    function trackRecipeView(recipeId, recipeTitle) {
+        trackEvent('view_recipe', {
+            recipe_id: recipeId,
+            recipe_title: recipeTitle
+        });
+    }
+
+    // Track search events
+    function trackSearch(searchTerm, resultsCount) {
+        trackEvent('search', {
+            search_term: searchTerm,
+            results_count: resultsCount
+        });
+    }
+
+    // Track newsletter signups
+    function trackNewsletterSignup(email) {
+        trackEvent('newsletter_signup', {
+            email: email // Note: Be cautious with PII. You might want to hash this.
+        });
+    }
+
+    // Track contact form submissions
+    function trackContactSubmission(name, email) {
+        trackEvent('contact_submission', {
+            name: name,
+            email: email // Note: Be cautious with PII. You might want to hash this.
+        });
+    }
+
+    // ===== FIREBASE FIRESTORE INTEGRATION =====
+    // Save newsletter subscription to Firestore
+    async function saveNewsletterSubscription(email) {
+        try {
+            await db.collection("newsletterSubscriptions").add({
+                email: email,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                source: "website",
+                userAgent: navigator.userAgent,
+                ipAddress: null // Note: You'd need a backend function to get this securely
+            });
+            return true;
+        } catch (error) {
+            console.error("Error saving newsletter subscription: ", error);
+            return false;
+        }
+    }
+
+    // Save contact form submission to Firestore
+    async function saveContactFormSubmission(formData) {
+        try {
+            await db.collection("contactSubmissions").add({
+                name: formData.name,
+                email: formData.email,
+                subject: formData.subject,
+                message: formData.message,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                userAgent: navigator.userAgent,
+                ipAddress: null // Note: You'd need a backend function to get this securely
+            });
+            return true;
+        } catch (error) {
+            console.error("Error saving contact form: ", error);
+            return false;
+        }
+    }
+
+    // Fetch recipes from Firestore (with offline support)
+    async function fetchRecipes() {
+        try {
+            // First try to get fresh data from server
+            const snapshot = await db.collection("recipes")
+                .where("published", "==", true)
+                .orderBy("createdAt", "desc")
+                .get({ source: 'server' });
+            
+            const recipes = [];
+            snapshot.forEach(doc => {
+                recipes.push({ id: doc.id, ...doc.data() });
+            });
+            
+            return recipes;
+        } catch (error) {
+            console.error("Error fetching recipes from server, trying cache: ", error);
+            
+            // If online fetch fails, try cache
+            try {
+                const snapshot = await db.collection("recipes")
+                    .where("published", "==", true)
+                    .orderBy("createdAt", "desc")
+                    .get({ source: 'cache' });
+                
+                const recipes = [];
+                snapshot.forEach(doc => {
+                    recipes.push({ id: doc.id, ...doc.data() });
+                });
+                
+                return recipes;
+            } catch (cacheError) {
+                console.error("Error fetching recipes from cache: ", cacheError);
+                return []; // Return empty array if both attempts fail
+            }
+        }
+    }
+
+    // ===== INTEGRATION WITH EXISTING CODE =====
+    // Modify your existing newsletter form submission
+    newsletterForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('newsletter-email').value;
+        
+        // Track the event
+        trackNewsletterSignup(email);
+        
+        // Save to Firestore
+        const success = await saveNewsletterSubscription(email);
+        
+        if (success) {
+            newsletterForm.reset();
+            showNotification('Thank you for subscribing to our newsletter!');
+        } else {
+            showNotification('Failed to subscribe. Please try again later.');
+        }
+    });
+
+    // Modify your existing contact form submission
+    contactForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const formData = {
+            name: document.getElementById('name').value,
+            email: document.getElementById('email').value,
+            subject: document.getElementById('subject').value,
+            message: document.getElementById('message').value
+        };
+        
+        // Track the event
+        trackContactSubmission(formData.name, formData.email);
+        
+        // Save to Firestore
+        const success = await saveContactFormSubmission(formData);
+        
+        if (success) {
+            contactForm.reset();
+            showNotification('Your message has been sent successfully!');
+        } else {
+            showNotification('Failed to send message. Please try again later.');
+        }
+    });
+
+    // Track recipe views when modal opens
+    function showRecipeModal(recipeId) {
+        const recipe = recipes.find(r => r.id === recipeId);
+        if (!recipe) return;
+        
+        // Track the recipe view
+        trackRecipeView(recipeId, recipe.title);
+        
+        // Rest of your existing showRecipeModal function...
+        // ... [keep all your existing modal code]
+    }
+
+    // Track search events
+    function searchRecipes() {
+        const searchTerm = searchInput.value.toLowerCase().trim();
+        
+        // Track the search
+        const filteredRecipes = recipes.filter(recipe => 
+            recipe.title.toLowerCase().includes(searchTerm) ||
+            recipe.description.toLowerCase().includes(searchTerm) ||
+            recipe.ingredients.some(ing => ing.toLowerCase().includes(searchTerm))
+        );
+        
+        trackSearch(searchTerm, filteredRecipes.length);
+        
+        // Rest of your existing searchRecipes function...
+        // ... [keep all your existing search code]
+    }
+
+    // Track page views on navigation
+    window.addEventListener('load', () => {
+        trackPageView(document.title);
+    });
+
+    // Track page views when navigating with smooth scroll
+    document.querySelectorAll('.smooth-scroll').forEach(link => {
+        link.addEventListener('click', function(e) {
+            const targetId = this.getAttribute('href');
+            const targetSection = document.querySelector(targetId);
+            if (targetSection) {
+                trackPageView(targetSection.textContent.trim() || targetId);
+            }
+        });
+    });
+
+    // Initialize with recipes from Firestore
+    async function initializeApp() {
+        try {
+            const firestoreRecipes = await fetchRecipes();
+            if (firestoreRecipes.length > 0) {
+                recipes = firestoreRecipes;
+                displayRecipes(recipes);
+            } else {
+                console.log("Using default recipes as fallback");
+                displayRecipes(recipes); // Use your default recipes
+            }
+        } catch (error) {
+            console.error("Error initializing app with Firestore data: ", error);
+            displayRecipes(recipes); // Use your default recipes
+        }
+    }
+
+    // Call initialize when DOM is loaded
+    document.addEventListener('DOMContentLoaded', initializeApp);
+
+    // ===== OFFLINE SUPPORT =====
+    // Listen for connection changes
+    window.addEventListener('online', () => {
+        showNotification('Connection restored. You are back online.');
+        initializeApp(); // Refresh data when coming back online
+    });
+
+    window.addEventListener('offline', () => {
+        showNotification('You are currently offline. Some features may be limited.');
+    });
+
+    // Check initial connection status
+    if (!navigator.onLine) {
+        showNotification('You are currently offline. Some features may be limited.');
+    }
+
+    // ===== PERFORMANCE MONITORING =====
+    // Track page load performance
+    if ('performance' in window) {
+        window.addEventListener('load', () => {
+            const timing = performance.timing;
+            const loadTime = timing.loadEventEnd - timing.navigationStart;
+            
+            trackEvent('page_load', {
+                load_time: loadTime,
+                dom_ready: timing.domContentLoadedEventStart - timing.navigationStart,
+                page_complete: timing.loadEventEnd - timing.navigationStart
+            });
+        });
+    }
+
+
+
+        
  
 
 
