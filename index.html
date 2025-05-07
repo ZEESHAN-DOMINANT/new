@@ -4082,10 +4082,125 @@ window.addEventListener('load', animateOnScroll);
 //Firebase Database Code
 
   
-    
-    
 
+    // Firebase and Google Analytics Integration
+    document.addEventListener('DOMContentLoaded', function() {
+        // Your web app's Firebase configuration
+        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyC9kDgSE37a8wAyc6XSW0xrjb1a_vs5y7k",
+  authDomain: "food-renovation-c989e.firebaseapp.com",
+  projectId: "food-renovation-c989e",
+  storageBucket: "food-renovation-c989e.firebasestorage.app",
+  messagingSenderId: "451679606736",
+  appId: "1:451679606736:web:e64e899b7859d3d3a3cbd5",
+  measurementId: "G-HWVVYV1BN4"
+};
 
+        // Initialize Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+            
+            // Initialize Analytics only if measurementId exists
+            if (firebaseConfig.measurementId) {
+                firebase.analytics();
+            }
+        }
+
+        const db = firebase.firestore();
+
+        // Function to track page views with Google Analytics
+        function trackPageView(pageTitle) {
+            if (typeof firebase !== 'undefined' && firebase.analytics) {
+                firebase.analytics().logEvent('page_view', {
+                    page_title: pageTitle,
+                    page_location: window.location.href
+                });
+            }
+        }
+
+        // Track initial page view
+        trackPageView(document.title);
+
+        // Track subsequent page views when navigating
+        window.addEventListener('hashchange', function() {
+            const pageTitle = document.title + ' - ' + window.location.hash;
+            trackPageView(pageTitle);
+        });
+
+        // Enhanced recipe data management with Firestore
+        async function loadRecipesFromFirestore() {
+            try {
+                const snapshot = await db.collection("recipes").get();
+                const firestoreRecipes = [];
+                
+                snapshot.forEach(doc => {
+                    firestoreRecipes.push({ id: doc.id, ...doc.data() });
+                });
+
+                // Only update if we got recipes from Firestore
+                if (firestoreRecipes.length > 0) {
+                    // Merge with local recipes, giving priority to Firestore data
+                    const mergedRecipes = [...firestoreRecipes, ...recipes.filter(r => 
+                        !firestoreRecipes.some(fr => fr.id === r.id)
+                    )];
+                    
+                    // Update the display
+                    displayRecipes(mergedRecipes);
+                } else {
+                    // Use local recipes if Firestore is empty
+                    displayRecipes(recipes);
+                }
+            } catch (error) {
+                console.error("Error loading recipes from Firestore:", error);
+                // Fallback to local recipes
+                displayRecipes(recipes);
+            }
+        }
+
+        // Replace your initial displayRecipes call with this:
+        loadRecipesFromFirestore();
+
+        // Track recipe views
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('view-recipe')) {
+                const recipeId = e.target.dataset.id;
+                const recipe = recipes.find(r => r.id === parseInt(recipeId));
+                
+                if (recipe && typeof firebase !== 'undefined' && firebase.analytics) {
+                    firebase.analytics().logEvent('view_recipe', {
+                        recipe_id: recipeId,
+                        recipe_name: recipe.title
+                    });
+                }
+            }
+        });
+
+        // Track searches
+        const searchBtn = document.getElementById('search-btn');
+        if (searchBtn) {
+            searchBtn.addEventListener('click', function() {
+                const searchTerm = document.getElementById('search-input').value;
+                if (searchTerm && typeof firebase !== 'undefined' && firebase.analytics) {
+                    firebase.analytics().logEvent('search', {
+                        search_term: searchTerm
+                    });
+                }
+            });
+        }
+
+        // Track newsletter signups
+        const newsletterForm = document.getElementById('newsletter-form');
+        if (newsletterForm) {
+            newsletterForm.addEventListener('submit', function(e) {
+                if (typeof firebase !== 'undefined' && firebase.analytics) {
+                    firebase.analytics().logEvent('sign_up', {
+                        method: 'newsletter'
+                    });
+                }
+            });
+        }
+    });
         
 
 
